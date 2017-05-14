@@ -5,6 +5,15 @@ Newspaper3k: Article scraping & curation
     :target: http://badge.fury.io/py/newspaper3k.svg
         :alt: Latest version
 
+.. image:: https://travis-ci.org/codelucas/newspaper.svg
+        :target: http://travis-ci.org/codelucas/newspaper/
+        :alt: Build status
+
+.. image:: https://coveralls.io/repos/github/codelucas/newspaper/badge.svg?branch=master
+        :target: https://coveralls.io/github/codelucas/newspaper
+        :alt: Coverage status
+
+
 Inspired by `requests`_ for its simplicity and powered by `lxml`_ for its speed:
 
     "Newspaper is an amazing python library for extracting & curating articles."
@@ -15,7 +24,7 @@ Inspired by `requests`_ for its simplicity and powered by `lxml`_ for its speed:
 .. _`tweeted by`: https://twitter.com/kennethreitz/status/419520678862548992
 .. _`The Changelog`: http://thechangelog.com/newspaper-delivers-instapaper-style-article-extraction/
 
-**Newspaper is a Python3 library**! Or, view the `Python2 branch`_
+**Newspaper is a Python3 library**! Or, view our **deprecated and buggy** `Python2 branch`_
 
 .. _`Python2 branch`: https://github.com/codelucas/newspaper/tree/python-2-head
 
@@ -159,12 +168,11 @@ Documentation
 
 Check out `The Documentation`_ for full and detailed guides using newspaper.
 
-Interested in adding a new language for us? Refer to: `Docs - Adding new languages <http://newspaper.readthedocs.org/en/latest/user_guide/advanced.html#adding-new-languages>`_
+Interested in adding a new language for us? Refer to: `Docs - Adding new languages <https://newspaper.readthedocs.io/en/latest/user_guide/advanced.html#adding-new-languages>`_
 
 Features
 --------
 
-- Full Python3 and Python2 support
 - Multi-threaded article download framework
 - News url identification
 - Text extraction from html
@@ -191,6 +199,7 @@ Features
       en              English
       es              Spanish
       fr              French
+      he              Hebrew
       it              Italian
       ko              Korean
       no              Norwegian
@@ -202,6 +211,7 @@ Features
       zh              Chinese
       id              Indonesian
       vi              Vietnamese
+      tr              Turkish
 
 
 Get it now
@@ -210,7 +220,7 @@ Get it now
 Installing newspaper is simple with `pip <http://www.pip-installer.org/>`_.
 However, you will run into fixable issues if you are trying to install on ubuntu.
 
-Note that our Python3 package name is ``newspaper3k`` while our Python2
+Note that the Python3 package name is ``newspaper3k`` while our Python2
 package name is ``newspaper``.
 
 **If you are on Debian / Ubuntu**, install using the following:
@@ -230,6 +240,8 @@ package name is ``newspaper``.
 - For PIL to recognize .jpg images::
 
     $ sudo apt-get install libjpeg-dev zlib1g-dev libpng12-dev
+
+NOTE: If you find problem installing ``libpng12-dev``, try installing ``libpng-dev``.
 
 - Install the distribution via pip::
 
@@ -269,9 +281,6 @@ NOTE: You will still most likely need to install the following libraries via you
 
 Development
 -----------
-
-Newspaper has two branches up for development. *This* branch, the master, is our Python3
-codebase while our Python2 branch is located on *python-2-head*.
 
 If you'd like to contribute and hack on the newspaper project, feel free to clone
 a development version of this repository locally::
@@ -316,8 +325,8 @@ to talk about the future of this library and news extraction in general!
 .. _`python-goose's`: https://github.com/grangier/python-goose
 .. _`here`: https://github.com/codelucas/newspaper/blob/master/GOOSE-LICENSE.txt
 
-.. _`Quickstart guide`: https://newspaper.readthedocs.org/en/latest/
-.. _`The Documentation`: http://newspaper.readthedocs.org
+.. _`Quickstart guide`: https://newspaper.readthedocs.io/en/latest/
+.. _`The Documentation`: https://newspaper.readthedocs.io
 .. _`lxml`: http://lxml.de/
 .. _`requests`: https://github.com/kennethreitz/requests
 .. _`Parse.ly`: http://parse.ly

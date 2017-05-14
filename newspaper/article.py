@@ -20,7 +20,7 @@ from .configuration import Configuration
 from .extractors import ContentExtractor
 from .outputformatters import OutputFormatter
 from .utils import (URLHelper, RawHelper, extend_config,
-                    get_available_languages)
+                    get_available_languages, extract_meta_refresh)
 from .videos.extractors import VideoExtractor
 
 log = logging.getLogger(__name__)
@@ -43,7 +43,10 @@ class Article(object):
         self.extractor = ContentExtractor(self.config)
 
         if source_url == '':
-            source_url = urls.get_scheme(url) + '://' + urls.get_domain(url)
+            scheme = urls.get_scheme(url)
+            if scheme is None:
+                scheme = 'http'
+            source_url = scheme + '://' + urls.get_domain(url)
 
         if source_url is None or source_url == '':
             raise ArticleException('input url bad format')
@@ -141,13 +144,22 @@ class Article(object):
         self.parse()
         self.nlp()
 
-    def download(self, html=None):
+    def download(self, html=None, title=None):
         """Downloads the link's HTML content, don't use if you are batch async
         downloading articles
         """
         if html is None:
             html = network.get_html(self.url, self.config)
+
+        if self.config.follow_meta_refresh:
+            meta_refresh_url = extract_meta_refresh(html)
+            if meta_refresh_url:
+                return self.download(html=network.get_html(meta_refresh_url))
+
         self.set_html(html)
+
+        if title is not None:
+            self.set_title(title)
 
     def parse(self):
         if not self.is_downloaded:
@@ -269,7 +281,8 @@ class Article(object):
         wordcount = self.text.split(' ')
         sentcount = self.text.split('.')
 
-        if meta_type == 'article' and wordcount > (self.config.MIN_WORD_COUNT):
+        if (meta_type == 'article' and len(wordcount) >
+                (self.config.MIN_WORD_COUNT)):
             log.debug('%s verified for article and wc' % self.url)
             return True
 
@@ -320,7 +333,9 @@ class Article(object):
         keyws = list(set(title_keyws + text_keyws))
         self.set_keywords(keyws)
 
-        summary_sents = nlp.summarize(title=self.title, text=self.text)
+        max_sents = self.config.MAX_SUMMARY_SENT
+
+        summary_sents = nlp.summarize(title=self.title, text=self.text, max_sents=max_sents)
         summary = '\n'.join(summary_sents)
         self.set_summary(summary)
 
@@ -362,13 +377,20 @@ class Article(object):
 
     def set_reddit_top_img(self):
         """Wrapper for setting images. Queries known image attributes
-        first, then uses Reddit's imgage algorithm as a fallback.
+        first, then uses Reddit's image algorithm as a fallback.
         """
         try:
             s = images.Scraper(self)
             self.set_top_img(s.largest_image_url())
+        except TypeError as e:
+            if "Can't convert 'NoneType' object to str implicitly" in e.args[0]:
+                log.debug("No pictures found. Top image not set, %s" % e)
+            elif "timed out" in e.args[0]:
+                log.debug("Download of picture timed out. Top image not set, %s" % e)
+            else:
+                log.critical('TypeError other than None type error. Cannot set top image using the Reddit algorithm. Possible error with PIL., %s' % e)
         except Exception as e:
-            log.critical('jpeg error with PIL, %s' % e)
+            log.critical('Other error with setting top image using the Reddit algorithm. Possible error with PIL, %s' % e)
 
     def set_title(self, title):
         if self.title and not title:

@@ -16,25 +16,25 @@ import copy
 from dateutil.parser import parse as date_parser
 import logging
 import re
-import urllib.parse
+from urllib.parse import urljoin, urlunparse, urlparse
 
 from tldextract import tldextract
 
 from . import urls
 
-from .utils import ReplaceSequence, StringReplacement, StringSplitter
+from .utils import StringReplacement, StringSplitter
 
 log = logging.getLogger(__name__)
 
 MOTLEY_REPLACEMENT = StringReplacement("&#65533;", "")
 ESCAPED_FRAGMENT_REPLACEMENT = StringReplacement(
     "#!", "?_escaped_fragment_=")
-TITLE_REPLACEMENTS = ReplaceSequence().create("&raquo;").append("»")
+TITLE_REPLACEMENTS = StringReplacement("&raquo;", "»")
 PIPE_SPLITTER = StringSplitter("\\|")
 DASH_SPLITTER = StringSplitter(" - ")
 UNDERSCORE_SPLITTER = StringSplitter("_")
 SLASH_SPLITTER = StringSplitter("/")
-ARROWS_SPLITTER = StringSplitter("»")
+ARROWS_SPLITTER = StringSplitter(" » ")
 COLON_SPLITTER = StringSplitter(":")
 SPACE_SPLITTER = StringSplitter(' ')
 NO_STRINGS = set()
@@ -79,6 +79,19 @@ class ContentExtractor(object):
         def contains_digits(d):
             return bool(_digits.search(d))
 
+        def uniqify_list(lst):
+            """Remove duplicates from provided list but maintain original order.
+              Derived from http://www.peterbe.com/plog/uniqifiers-benchmark
+            """
+            seen = {}
+            result = []
+            for item in lst:
+                if item.lower() in seen:
+                    continue
+                seen[item.lower()] = 1
+                result.append(item.title())
+            return result
+
         def parse_byline(search_str):
             """Takes a candidate line of html or text and
             extracts out the name(s) in list form
@@ -95,21 +108,19 @@ class ContentExtractor(object):
             search_str = search_str.strip()
 
             # Chunk the line by non alphanumeric tokens (few name exceptions)
-            # >>> re.split("[^\w\'\-]", "Lucas Ou, Dean O'Brian and Ronald")
-            # ['Lucas Ou', '', 'Dean O'Brian', 'and', 'Ronald']
-            name_tokens = re.split("[^\w\'\-]", search_str)
+            # >>> re.split("[^\w\'\-\.]", "Tyler G. Jones, Lucas Ou, Dean O'Brian and Ronald")
+            # ['Tyler', 'G.', 'Jones', '', 'Lucas', 'Ou', '', 'Dean', "O'Brian", 'and', 'Ronald']
+            name_tokens = re.split("[^\w\'\-\.]", search_str)
             name_tokens = [s.strip() for s in name_tokens]
 
             _authors = []
             # List of first, last name tokens
             curname = []
-            DELIM = ['and', '']
+            DELIM = ['and', ',', '']
 
             for token in name_tokens:
                 if token in DELIM:
-                    # should we allow middle names?
-                    valid_name = (len(curname) == 2)
-                    if valid_name:
+                    if len(curname) > 0:
                         _authors.append(' '.join(curname))
                         curname = []
 
@@ -126,9 +137,9 @@ class ContentExtractor(object):
         # Try 1: Search popular author tags for authors
 
         ATTRS = ['name', 'rel', 'itemprop', 'class', 'id']
-        VALS = ['author', 'byline']
+        VALS = ['author', 'byline', 'dc.creator']
         matches = []
-        _authors, authors = [], []
+        authors = []
 
         for attr in ATTRS:
             for val in VALS:
@@ -145,13 +156,9 @@ class ContentExtractor(object):
             else:
                 content = match.text or ''
             if len(content) > 0:
-                _authors.extend(parse_byline(content))
+                authors.extend(parse_byline(content))
 
-        uniq = list(set([s.lower() for s in _authors]))
-        for name in uniq:
-            names = [w.capitalize() for w in name.split(' ')]
-            authors.append(' '.join(names))
-        return authors or []
+        return uniqify_list(authors)
 
         # TODO Method 2: Search raw html for a by-line
         # match = re.search('By[\: ].*\\n|From[\: ].*\\n', html)
@@ -217,6 +224,20 @@ class ContentExtractor(object):
 
     def get_title(self, doc):
         """Fetch the article title and analyze it
+
+        Assumptions:
+        - title tag is the most reliable (inherited from Goose)
+        - h1, if properly detected, is the best (visible to users)
+        - og:title and h1 can help improve the title extraction
+        - python == is too strict, often we need to compare fitlered
+          versions, i.e. lowercase and ignoring special chars
+
+        Explicit rules:
+        1. title == h1, no need to split
+        2. h1 similar to og:title, use h1
+        3. title contains h1, title contains og:title, len(h1) > len(og:title), use h1
+        4. title starts with og:title, use og:title
+        5. use title, after splitting
         """
         title = ''
         title_element = self.parser.getElementsByTag(doc, tag='title')
@@ -228,48 +249,103 @@ class ContentExtractor(object):
         title_text = self.parser.getText(title_element[0])
         used_delimeter = False
 
+        # title from h1
+        # - extract the longest text from all h1 elements
+        # - too short texts (less than 2 words) are discarded
+        # - clean double spaces
+        title_text_h1 = ''
+        title_element_h1_list = self.parser.getElementsByTag(doc, tag='h1') or []
+        title_text_h1_list = [self.parser.getText(tag) for tag in title_element_h1_list]
+        if title_text_h1_list:
+            # sort by len and set the longest
+            title_text_h1_list.sort(key=len, reverse=True)
+            title_text_h1 = title_text_h1_list[0]
+            # discard too short texts
+            if len(title_text_h1.split(' ')) <= 2:
+                title_text_h1 = ''
+            # clean double spaces
+            title_text_h1 = ' '.join([x for x in title_text_h1.split() if x])
+
+        # title from og:title
+        title_text_fb = (self.get_meta_content(doc, 'meta[property="og:title"]') or
+                         self.get_meta_content(doc, 'meta[name="og:title"]') or '')
+
+        # create filtered versions of title_text, title_text_h1, title_text_fb
+        # for finer comparison
+        filter_regex = re.compile(r'[^a-zA-Z0-9\ ]')
+        filter_title_text = filter_regex.sub('', title_text).lower()
+        filter_title_text_h1 = filter_regex.sub('', title_text_h1).lower()
+        filter_title_text_fb = filter_regex.sub('', title_text_fb).lower()
+
+        # check for better alternatives for title_text and possibly skip splitting
+        if title_text_h1 == title_text:
+            used_delimeter = True
+        elif filter_title_text_h1 and filter_title_text_h1 == filter_title_text_fb:
+            title_text = title_text_h1
+            used_delimeter = True
+        elif filter_title_text_h1 and filter_title_text_h1 in filter_title_text \
+                and filter_title_text_fb and filter_title_text_fb in filter_title_text \
+                and len(title_text_h1) > len(title_text_fb):
+            title_text = title_text_h1
+            used_delimeter = True
+        elif filter_title_text_fb and filter_title_text_fb != filter_title_text \
+                and filter_title_text.startswith(filter_title_text_fb):
+            title_text = title_text_fb
+            used_delimeter = True
+
         # split title with |
-        if '|' in title_text:
-            title_text = self.split_title(title_text, PIPE_SPLITTER)
+        if not used_delimeter and '|' in title_text:
+            title_text = self.split_title(title_text, PIPE_SPLITTER, title_text_h1)
             used_delimeter = True
 
         # split title with -
         if not used_delimeter and '-' in title_text:
-            title_text = self.split_title(title_text, DASH_SPLITTER)
+            title_text = self.split_title(title_text, DASH_SPLITTER, title_text_h1)
             used_delimeter = True
 
         # split title with _
         if not used_delimeter and '_' in title_text:
-            title_text = self.split_title(title_text, UNDERSCORE_SPLITTER)
+            title_text = self.split_title(title_text, UNDERSCORE_SPLITTER, title_text_h1)
+            used_delimeter = True
 
         # split title with /
         if not used_delimeter and '/' in title_text:
-            title_text = self.split_title(title_text, SLASH_SPLITTER)
+            title_text = self.split_title(title_text, SLASH_SPLITTER, title_text_h1)
             used_delimeter = True
 
         # split title with »
-        if not used_delimeter and '»' in title_text:
-            title_text = self.split_title(title_text, ARROWS_SPLITTER)
-            used_delimeter = True
-
-        # split title with :
-        if not used_delimeter and ':' in title_text:
-            title_text = self.split_title(title_text, COLON_SPLITTER)
+        if not used_delimeter and ' » ' in title_text:
+            title_text = self.split_title(title_text, ARROWS_SPLITTER, title_text_h1)
             used_delimeter = True
 
         title = MOTLEY_REPLACEMENT.replaceAll(title_text)
+
+        # in some cases the final title is quite similar to title_text_h1
+        # (either it differs for case, for special chars, or it's truncated)
+        # in these cases, we prefer the title_text_h1
+        filter_title = filter_regex.sub('', title).lower()
+        if filter_title_text_h1 == filter_title:
+            title = title_text_h1
+
         return title
 
-    def split_title(self, title, splitter):
+    def split_title(self, title, splitter, hint=None):
         """Split the title to best part possible
         """
         large_text_length = 0
         large_text_index = 0
         title_pieces = splitter.split(title)
 
+        if hint:
+            filter_regex = re.compile(r'[^a-zA-Z0-9\ ]')
+            hint = filter_regex.sub('', hint).lower()
+
         # find the largest title piece
         for i in range(len(title_pieces)):
-            current = title_pieces[i]
+            current = title_pieces[i].strip()
+            if hint and hint in filter_regex.sub('', current).lower():
+                large_text_index = i
+                break
             if len(current) > large_text_length:
                 large_text_length = len(current)
                 large_text_index = i
@@ -370,7 +446,7 @@ class ContentExtractor(object):
         top_meta_image = try_one or try_two or try_three or try_four
 
         if top_meta_image:
-            return urllib.parse.urljoin(article_url, top_meta_image)
+            return urljoin(article_url, top_meta_image)
         return ''
 
     def get_meta_type(self, doc):
@@ -428,21 +504,42 @@ class ContentExtractor(object):
         return data
 
     def get_canonical_link(self, article_url, doc):
-        """If the article has meta canonical link set in the url
         """
-        kwargs = {'tag': 'link', 'attr': 'rel', 'value': 'canonical'}
-        meta = self.parser.getElementsByTag(doc, **kwargs)
-        if meta is not None and len(meta) > 0:
-            href = self.parser.getAttribute(meta[0], 'href')
-            if href:
-                href = href.strip()
-                o = urllib.parse.urlparse(href)
-                if not o.hostname:
-                    z = urllib.parse.urlparse(article_url)
-                    domain = '%s://%s' % (z.scheme, z.hostname)
-                    href = urllib.parse.urljoin(domain, href)
-                return href
-        return ''
+        Return the article's canonical URL
+
+        Gets the first available value of:
+        1. The rel=canonical tag
+        2. The og:url tag
+        """
+        links = self.parser.getElementsByTag(doc, tag='link', attr='rel',
+                                             value='canonical')
+
+        canonical = self.parser.getAttribute(links[0], 'href') if links else ''
+        og_url = self.get_meta_content(doc, 'meta[property="og:url"]')
+        meta_url = canonical or og_url or ''
+        if meta_url:
+            meta_url = meta_url.strip()
+            parsed_meta_url = urlparse(meta_url)
+            if not parsed_meta_url.hostname:
+                # MIGHT not have a hostname in meta_url
+                # parsed_url.path might be 'example.com/article.html' where
+                # clearly example.com is the hostname
+                parsed_article_url = urlparse(article_url)
+                strip_hostname_in_meta_path = re.\
+                            match(".*{}(?=/)/(.*)".
+                            format(parsed_article_url.hostname),
+                                  parsed_meta_url.path)
+                try:
+                    true_path = strip_hostname_in_meta_path.group(1)
+                except AttributeError:
+                    true_path = parsed_meta_url.path
+
+                # true_path may contain querystrings and fragments
+                meta_url = urlunparse((parsed_article_url.scheme,
+                                       parsed_article_url.hostname,true_path,
+                                       '', '', ''))
+
+        return meta_url
 
     def get_img_urls(self, article_url, doc):
         """Return all of the images on an html page, lxml root
@@ -451,7 +548,7 @@ class ContentExtractor(object):
         img_tags = self.parser.getElementsByTag(doc, **img_kwargs)
         urls = [img_tag.get('src')
                 for img_tag in img_tags if img_tag.get('src')]
-        img_links = set([urllib.parse.urljoin(article_url, url)
+        img_links = set([urljoin(article_url, url)
                         for url in urls])
         return img_links
 
@@ -463,7 +560,7 @@ class ContentExtractor(object):
         node_images = self.get_img_urls(article_url, top_node)
         node_images = list(node_images)
         if node_images:
-            return urllib.parse.urljoin(article_url, node_images[0])
+            return urljoin(article_url, node_images[0])
         return ''
 
     def _get_urls(self, doc, titles):
@@ -559,7 +656,7 @@ class ContentExtractor(object):
                                'subdomain' % p_url))
                     continue
                 else:
-                    valid_categories.append(scheme+'://'+domain)
+                    valid_categories.append(scheme + '://' + domain)
                     # TODO account for case where category is in form
                     # http://subdomain.domain.tld/category/ <-- still legal!
             else:
@@ -570,7 +667,7 @@ class ContentExtractor(object):
                     path_chunks.remove('index.html')
 
                 if len(path_chunks) == 1 and len(path_chunks[0]) < 14:
-                    valid_categories.append(domain+path)
+                    valid_categories.append(domain + path)
                 else:
                     if self.config.verbose:
                         print(('elim category url %s for >1 path chunks '
@@ -857,18 +954,20 @@ class ContentExtractor(object):
         link to text ratio, then the text is less likely to be relevant
         """
         links = self.parser.getElementsByTag(e, tag='a')
-        if links is None or len(links) == 0:
+        if not links:
             return False
 
         text = self.parser.getText(e)
-        words = text.split(' ')
+        words = [word for word in text.split() if word.isalnum()]
+        if not words:
+            return True
         words_number = float(len(words))
         sb = []
         for link in links:
             sb.append(self.parser.getText(link))
 
         linkText = ''.join(sb)
-        linkWords = linkText.split(' ')
+        linkWords = linkText.split()
         numberOfLinkWords = float(len(linkWords))
         numberOfLinks = float(len(links))
         linkDivisor = float(numberOfLinkWords / words_number)

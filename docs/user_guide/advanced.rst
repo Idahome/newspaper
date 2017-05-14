@@ -195,6 +195,8 @@ Here is a full list of the configuration options:
 
 ``keep_article_html``, default False, "set to True if you want to preserve html of body text"
 
+``http_success_only``, default True, "set to False to capture non 2XX responses as well"
+
 ``MIN_WORD_COUNT``, default 300, "num of word tokens in article text"
 
 ``MIN_SENT_COUNT``, default 7, "num of sentence tokens"
@@ -209,11 +211,15 @@ Here is a full list of the configuration options:
 
 ``MAX_SUMMARY``, default 5000, "num of chars of the summary"
 
+``MAX_SUMMARY_SENT``, default 5, "num of sentences in summary"
+
 ``MAX_FILE_MEMO``, default 20000, "python setup.py sdist bdist_wininst upload"
 
 ``memoize_articles``, default True, "cache and save articles run after run"
 
 ``fetch_images``, default True, "set this to false if you don't care about getting images"
+
+``follow_meta_refresh``, default False, "follows a redirect url in a meta refresh html tag"
 
 ``image_dimension_ration``, default 16/9.0, "max ratio for height/width, we ignore if greater"
 

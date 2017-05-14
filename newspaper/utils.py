@@ -22,6 +22,8 @@ import time
 
 from hashlib import sha1
 
+from bs4 import BeautifulSoup
+
 from . import settings
 
 log = logging.getLogger(__name__)
@@ -29,8 +31,8 @@ log.setLevel(logging.DEBUG)
 
 
 class FileHelper(object):
-    @classmethod
-    def loadResourceFile(self, filename):
+    @staticmethod
+    def loadResourceFile(filename):
         if not os.path.isabs(filename):
             dirpath = os.path.abspath(os.path.dirname(__file__))
             path = os.path.join(dirpath, 'resources', filename)
@@ -47,23 +49,23 @@ class FileHelper(object):
 
 class ParsingCandidate(object):
 
-    def __init__(self, urlString, link_hash):
-        self.urlString = self.url = urlString
+    def __init__(self, url, link_hash):
+        self.url = url
         self.link_hash = link_hash
 
 
 class RawHelper(object):
-    @classmethod
-    def get_parsing_candidate(self, url, raw_html):
+    @staticmethod
+    def get_parsing_candidate(url, raw_html):
         if isinstance(raw_html, str):
-            raw_html = raw_html.encode('utf-8')
+            raw_html = raw_html.encode('utf-8', 'replace')
         link_hash = '%s.%s' % (hashlib.md5(raw_html).hexdigest(), time.time())
         return ParsingCandidate(url, link_hash)
 
 
 class URLHelper(object):
-    @classmethod
-    def get_parsing_candidate(self, url_to_crawl):
+    @staticmethod
+    def get_parsing_candidate(url_to_crawl):
         # Replace shebang in urls
         final_url = url_to_crawl.replace('#!', '?_escaped_fragment_=') \
             if '#!' in url_to_crawl else url_to_crawl
@@ -179,6 +181,29 @@ def is_ascii(word):
     return True
 
 
+def extract_meta_refresh(html):
+    """ Parses html for a tag like:
+    <meta http-equiv="refresh" content="0;URL='http://sfbay.craigslist.org/eby/cto/5617800926.html'" />
+    Example can be found at: https://www.google.com/url?rct=j&sa=t&url=http://sfbay.craigslist.org/eby/cto/
+    5617800926.html&ct=ga&cd=CAAYATIaYTc4ZTgzYjAwOTAwY2M4Yjpjb206ZW46VVM&usg=AFQjCNF7zAl6JPuEsV4PbEzBomJTUpX4Lg
+    """
+    soup = BeautifulSoup(html, 'html.parser')
+    element = soup.find('meta', attrs={'http-equiv': 'refresh'})
+    if element:
+        try:
+            wait_part, url_part = element['content'].split(";")
+        except ValueError:
+            # In case there are not enough values to unpack
+            # for instance: <meta http-equiv="refresh" content="600" />
+            return None
+        else:
+            # Get rid of any " or ' inside the element
+            # for instance:
+            # <meta http-equiv="refresh" content="0;URL='http://sfbay.craigslist.org/eby/cto/5617800926.html'" />
+            if url_part.lower().startswith("url="):
+                return url_part[4:].replace('"', '').replace("'", '')
+
+
 def to_valid_filename(s):
     """Converts arbitrary string (for us domain name)
     into a valid file name for caching
@@ -187,7 +212,7 @@ def to_valid_filename(s):
     return ''.join(c for c in s if c in valid_chars)
 
 
-def cache_disk(seconds=(86400*5), cache_folder="/tmp"):
+def cache_disk(seconds=(86400 * 5), cache_folder="/tmp"):
     """Caching extracting category locations & rss feeds for 5 days
     """
     def do_cache(function):
@@ -223,7 +248,7 @@ def print_duration(method):
         ts = time.time()
         result = method(*args, **kw)
         te = time.time()
-        print('%r %2.2f sec' % (method.__name__, te-ts))
+        print('%r %2.2f sec' % (method.__name__, te - ts))
         return result
     return timed
 
@@ -232,9 +257,9 @@ def chunks(l, n):
     """Yield n successive chunks from l
     """
     newn = int(len(l) / n)
-    for i in range(0, n-1):
-        yield l[i*newn:i*newn+newn]
-    yield l[n*newn-newn:]
+    for i in range(0, n - 1):
+        yield l[i * newn:i * newn + newn]
+    yield l[n * newn - newn:]
 
 
 def purge(fn, pattern):
@@ -310,7 +335,7 @@ def get_useragent():
     """
     with open(settings.USERAGENTS, 'r') as f:
         agents = f.readlines()
-        selection = random.randint(0, len(agents)-1)
+        selection = random.randint(0, len(agents) - 1)
         agent = agents[selection]
         return agent.strip()
 
@@ -329,25 +354,28 @@ def print_available_languages():
     """Prints available languages with their full names
     """
     language_dict = {
-        'ar':   'Arabic',
-        'ru':   'Russian',
-        'nl':   'Dutch',
-        'de':   'German',
-        'en':   'English',
-        'es':   'Spanish',
-        'fr':   'French',
-        'it':   'Italian',
-        'ko':   'Korean',
-        'no':   'Norwegian',
-        'nb':   'Norwegian (Bokmål)',
-        'pt':   'Portuguese',
-        'sv':   'Swedish',
-        'hu':   'Hungarian',
-        'fi':   'Finnish',
-        'da':   'Danish',
-        'zh':   'Chinese',
-        'id':   'Indonesian',
-        'vi':   'Vietnamese',
+        'ar': 'Arabic',
+        'ru': 'Russian',
+        'nl': 'Dutch',
+        'de': 'German',
+        'en': 'English',
+        'es': 'Spanish',
+        'fr': 'French',
+        'he': 'Hebrew',
+        'it': 'Italian',
+        'ko': 'Korean',
+        'no': 'Norwegian',
+        'nb': 'Norwegian (Bokmål)',
+        'pt': 'Portuguese',
+        'sv': 'Swedish',
+        'hu': 'Hungarian',
+        'fi': 'Finnish',
+        'da': 'Danish',
+        'zh': 'Chinese',
+        'id': 'Indonesian',
+        'vi': 'Vietnamese',
+        'mk': 'Macedonian',
+        'tr': 'Turkish',
     }
 
     codes = get_available_languages()

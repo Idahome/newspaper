@@ -34,6 +34,7 @@ class Configuration(object):
         self.MAX_KEYWORDS = 35     # num of strings in list
         self.MAX_AUTHORS = 10      # num strings in list
         self.MAX_SUMMARY = 5000    # num of chars
+        self.MAX_SUMMARY_SENT = 5  # num of sentences
 
         # max number of urls we cache for each news source
         self.MAX_FILE_MEMO = 20000
@@ -43,13 +44,19 @@ class Configuration(object):
 
         # Set this to false if you don't care about getting images
         self.fetch_images = True
-        self.image_dimension_ration = 16/9.0
+        self.image_dimension_ration = 16 / 9.0
+
+        # Follow meta refresh redirect when downloading
+        self.follow_meta_refresh = False
 
         # Don't toggle this variable, done internally
         self.use_meta_language = True
 
         # You may keep the html of just the main article body
         self.keep_article_html = False
+
+        # Fail for error respones (e.g. 404 page)
+        self.http_success_only = True
 
         # English is the fallback
         self._language = 'en'
@@ -62,6 +69,8 @@ class Configuration(object):
         self.number_threads = 10
 
         self.verbose = False  # for debugging
+
+        self.thread_timeout_seconds = 1
 
         # Set this to False if you want to recompute the categories
         # *every* time you build a `Source` object

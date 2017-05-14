@@ -50,16 +50,23 @@ def get_html(url, config=None, response=None):
 
     try:
         html = None
+
         response = requests.get(
             url=url, **get_request_kwargs(timeout, useragent))
+
         if response.encoding != FAIL_ENCODING:
             html = response.text
         else:
             html = response.content
+
+        if config.http_success_only:
+            response.raise_for_status()  # fail if other than "ok" response
+
         if html is None:
             html = ''
+
         return html
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
         log.debug('%s on %s' % (e, url))
         return ''
 
@@ -72,6 +79,7 @@ class MRequest(object):
     """
     def __init__(self, url, config=None):
         self.url = url
+        self.config = config
         config = config or Configuration()
         self.useragent = config.browser_user_agent
         self.timeout = config.request_timeout
@@ -81,8 +89,9 @@ class MRequest(object):
         try:
             self.resp = requests.get(self.url, **get_request_kwargs(
                                      self.timeout, self.useragent))
-        except Exception as e:
-            pass
+            if self.config.http_success_only:
+                self.resp.raise_for_status()
+        except requests.exceptions.RequestException as e:
             log.critical('[REQUEST FAILED] ' + str(e))
 
 
@@ -92,8 +101,9 @@ def multithread_request(urls, config=None):
     """
     config = config or Configuration()
     num_threads = config.number_threads
+    timeout = config.thread_timeout_seconds
 
-    pool = ThreadPool(num_threads)
+    pool = ThreadPool(num_threads, timeout)
 
     m_requests = []
     for url in urls:
